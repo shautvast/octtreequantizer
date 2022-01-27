@@ -1,11 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
-use image::{GenericImageView, Pixel, Rgba, RgbaImage};
+use image::{GenericImageView, Pixel, RgbImage, Rgb};
 use imageproc::definitions::Image;
 
 const MAX_LEVEL: usize = 5;
 
-pub fn quantize<P>(image: &Image<P>, num_colors: usize) -> RgbaImage
+pub fn quantize<P>(image: &Image<P>, num_colors: usize) -> RgbImage
 where
     P: Pixel<Subpixel = u8> + 'static,
 {
@@ -37,7 +37,7 @@ impl OctTreeQuantizer {
         new_quantizer
     }
 
-    pub fn quantize<P>(&mut self, image: &Image<P>) -> RgbaImage
+    pub fn quantize<P>(&mut self, image: &Image<P>) -> RgbImage
     where
         P: Pixel<Subpixel = u8> + 'static,
     {
@@ -57,7 +57,7 @@ impl OctTreeQuantizer {
         }
         let table = self.build_color_table();
 
-        let mut out = RgbaImage::new(image.width(), image.height());
+        let mut out = RgbImage::new(image.width(), image.height());
         for y in 0..image.height() {
             for x in 0..image.width() {
                 unsafe { //safe because bounds are checked
@@ -111,12 +111,12 @@ impl OctTreeQuantizer {
         get_index_for_color(&self, color, 0, node)
     }
 
-    fn build_color_table(&mut self) -> Vec<Option<Rgba<u8>>> {
+    fn build_color_table(&mut self) -> Vec<Option<Rgb<u8>>> {
         //nested function that is called recursively
         fn build_color_table(
             quantizer: &mut OctTreeQuantizer,
             node: &Rc<RefCell<OctTreeNode>>,
-            table: &mut Vec<Option<Rgba<u8>>>,
+            table: &mut Vec<Option<Rgb<u8>>>,
             index: usize,
         ) -> usize {
             if quantizer.colors > quantizer.maximum_colors {
@@ -126,11 +126,10 @@ impl OctTreeQuantizer {
                 {
                     let node = node.borrow();
                     let count = node.count;
-                    table[index] = Some(Rgba::from([
+                    table[index] = Some(Rgb::from([
                         (node.total_red / count as u32) as u8,
                         (node.total_green / count as u32) as u8,
                         (node.total_blue / count as u32) as u8,
-                        0xFF,
                     ]));
                 }
                 node.borrow_mut().index = index;
@@ -153,7 +152,7 @@ impl OctTreeQuantizer {
             }
         }
 
-        let mut table: Vec<Option<Rgba<u8>>> = vec![None; self.colors];
+        let mut table: Vec<Option<Rgb<u8>>> = vec![None; self.colors];
         let node = Rc::clone(&self.root);
         build_color_table(self, &node, &mut table, 0);
         table
@@ -370,7 +369,7 @@ mod test {
 
     #[test]
     fn test_big_image() -> Result<(), ImageError> {
-        let src: RgbaImage = image::open("testdata/input.jpg").unwrap().into_rgba8();
+        let src: RgbImage = image::open("testdata/input.jpg").unwrap().into_rgb8();
 
         let out = quantize(&src, 256);
         out.save_with_format("output.jpg", image::ImageFormat::Jpeg)?;
