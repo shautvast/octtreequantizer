@@ -1,11 +1,15 @@
 use std::{cell::RefCell, rc::Rc};
 
-use image::{Rgba, RgbaImage};
+use image::{GenericImageView, Pixel, Rgba, RgbaImage};
+use imageproc::definitions::Image;
 
 const MAX_LEVEL: usize = 5;
 
-pub fn quantize(image: &RgbaImage, num_colors:usize) -> RgbaImage{
-    let mut quantizer=OctTreeQuantizer::new(num_colors);
+pub fn quantize<P>(image: &Image<P>, num_colors: usize) -> RgbaImage
+where
+    P: Pixel<Subpixel = u8> + 'static,
+{
+    let mut quantizer = OctTreeQuantizer::new(num_colors);
     quantizer.quantize(image)
 }
 
@@ -33,10 +37,14 @@ impl OctTreeQuantizer {
         new_quantizer
     }
 
-    pub fn quantize(&mut self, image: &RgbaImage) -> RgbaImage {
+    pub fn quantize<P>(&mut self, image: &Image<P>) -> RgbaImage
+    where
+        P: Pixel<Subpixel = u8> + 'static,
+    {
         for y in 0..image.height() {
             for x in 0..image.width() {
-                self.insert_color(image.get_pixel(x, y), Rc::clone(&self.root));
+                let p = image.get_pixel(x, y);
+                self.insert_color(p, Rc::clone(&self.root));
 
                 if self.colors > self.reduce_colors {
                     self.reduce_tree(self.reduce_colors);
@@ -52,11 +60,13 @@ impl OctTreeQuantizer {
         let mut out = RgbaImage::new(image.width(), image.height());
         for y in 0..image.height() {
             for x in 0..image.width() {
-                let pixel = image.get_pixel(x, y);
-                if let Some(index) = self.get_index_for_color(pixel, &self.root) {
-                    let color = table.get(index).unwrap();
-                    if let Some(color) = color {
-                        out.put_pixel(x, y, *color);
+                unsafe { //safe because bounds are checked
+                    let pixel = image.unsafe_get_pixel(x, y);
+                    if let Some(index) = self.get_index_for_color(&pixel, &self.root) {
+                        let color = table.get(index).unwrap();
+                        if let Some(color) = color {
+                            out.put_pixel(x, y, *color);
+                        }
                     }
                 }
             }
@@ -64,17 +74,19 @@ impl OctTreeQuantizer {
         out
     }
 
-    fn get_index_for_color(
-        &self,
-        color: &Rgba<u8>,
-        node: &Rc<RefCell<OctTreeNode>>,
-    ) -> Option<usize> {
-        fn get_index_for_color(
+    fn get_index_for_color<P>(&self, color: &P, node: &Rc<RefCell<OctTreeNode>>) -> Option<usize>
+    where
+        P: Pixel<Subpixel = u8> + 'static,
+    {
+        fn get_index_for_color<P>(
             quantizer: &OctTreeQuantizer,
-            color: &Rgba<u8>,
+            color: &P,
             level: usize,
             node: &Rc<RefCell<OctTreeNode>>,
-        ) -> Option<usize> {
+        ) -> Option<usize>
+        where
+            P: Pixel<Subpixel = u8> + 'static,
+        {
             if level > MAX_LEVEL {
                 return None;
             }
@@ -147,14 +159,19 @@ impl OctTreeQuantizer {
         table
     }
 
-    fn insert_color(&mut self, rgb: &Rgba<u8>, node: Rc<RefCell<OctTreeNode>>) {
+    fn insert_color<P>(&mut self, rgb: &P, node: Rc<RefCell<OctTreeNode>>)
+    where
+        P: Pixel<Subpixel = u8> + 'static,
+    {
         //nested function that is called recursively
-        fn insert_color(
+        fn insert_color<P>(
             quantizer: &mut OctTreeQuantizer,
-            color: &Rgba<u8>,
+            color: &P,
             level: usize,
             node: Rc<RefCell<OctTreeNode>>,
-        ) {
+        ) where
+            P: Pixel<Subpixel = u8> + 'static,
+        {
             if level > MAX_LEVEL {
                 return;
             }
@@ -169,9 +186,9 @@ impl OctTreeQuantizer {
                 if level == MAX_LEVEL {
                     child.is_leaf = true;
                     child.count = 1;
-                    child.total_red = color[0] as u32;
-                    child.total_green = color[1] as u32;
-                    child.total_blue = color[2] as u32;
+                    child.total_red = color.channels()[0] as u32;
+                    child.total_green = color.channels()[1] as u32;
+                    child.total_blue = color.channels()[2] as u32;
                     child.level = level;
                     quantizer.colors += 1;
                 }
@@ -212,9 +229,9 @@ impl OctTreeQuantizer {
                         .unwrap()
                         .borrow_mut();
                     child.count += 1;
-                    child.total_red += color[0] as u32;
-                    child.total_green += color[1] as u32;
-                    child.total_blue += color[2] as u32;
+                    child.total_red += color.channels()[0] as u32;
+                    child.total_green += color.channels()[1] as u32;
+                    child.total_blue += color.channels()[2] as u32;
                     return;
                 } else {
                     insert_color(
@@ -325,23 +342,26 @@ impl OctTreeNode {
     }
 }
 
-fn get_bitmask(color: &Rgba<u8>, level: &usize) -> usize {
+fn get_bitmask<P>(color: &P, level: &usize) -> usize
+where
+    P: Pixel<Subpixel = u8> + 'static,
+{
     let bit = 0x80 >> level;
 
     let mut index = 0;
-    if (color[0] & bit) != 0 {
+    if (color.channels()[0] & bit) != 0 {
         index += 4;
     }
-    if (color[1] & bit) != 0 {
+    if (color.channels()[1] & bit) != 0 {
         index += 2;
     }
-    if (color[2] & bit) != 0 {
+    if (color.channels()[2] & bit) != 0 {
         index += 1;
     }
     index
 }
 
- #[cfg(test)]
+#[cfg(test)]
 mod test {
 
     use image::ImageError;
