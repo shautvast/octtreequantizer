@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use image::{GenericImageView, Pixel, RgbImage, Rgb};
+use image::{Pixel, Rgb, RgbImage};
 use imageproc::definitions::Image;
 
 const MAX_LEVEL: usize = 5;
@@ -41,37 +41,30 @@ impl OctTreeQuantizer {
     where
         P: Pixel<Subpixel = u8> + 'static,
     {
-        for y in 0..image.height() {
-            for x in 0..image.width() {
-                let p = image.get_pixel(x, y);
-                self.insert_color(p, Rc::clone(&self.root));
+        for pixel in image.pixels() {
+            self.insert_color(pixel, Rc::clone(&self.root));
 
-                if self.colors > self.reduce_colors {
-                    self.reduce_tree(self.reduce_colors);
-                    //reduce sets to None and the code below actually removes nodes from the list
-                    for level in &mut self.color_list {
-                        level.retain(|c| c.is_some());
-                    }
+            if self.colors > self.reduce_colors {
+                self.reduce_tree(self.reduce_colors);
+                //reduce sets to None and the code below actually removes nodes from the list
+                for level in &mut self.color_list {
+                    level.retain(|c| c.is_some());
                 }
             }
         }
         let table = self.build_color_table();
 
-        let mut out = RgbImage::new(image.width(), image.height());
-        for y in 0..image.height() {
-            for x in 0..image.width() {
-                unsafe { //safe because bounds are checked
-                    let pixel = image.unsafe_get_pixel(x, y);
-                    if let Some(index) = self.get_index_for_color(&pixel, &self.root) {
-                        let color = table.get(index).unwrap();
-                        if let Some(color) = color {
-                            out.put_pixel(x, y, *color);
-                        }
-                    }
+        let mut imgbuf = RgbImage::new(image.width(), image.height());
+        for (x, y, pixel) in image.enumerate_pixels() {
+            if let Some(index) = self.get_index_for_color(pixel, &self.root) {
+                let color = &table[index];
+                if let Some(color) = color {
+                    imgbuf.put_pixel(x, y, *color);
                 }
             }
         }
-        out
+
+        imgbuf
     }
 
     fn get_index_for_color<P>(&self, color: &P, node: &Rc<RefCell<OctTreeNode>>) -> Option<usize>
